@@ -477,6 +477,9 @@ unsafe fn choose_fbconfig(glx: &ffi::glx::Glx, extensions: &str, xlib: &ffi::Xli
             },
         }
 
+        //out.push(ffi::glx::TRANSPARENT_TYPE as c_int);
+        //out.push(ffi::glx::TRANSPARENT_RGB as c_int);
+
         out.push(ffi::glx::CONFIG_CAVEAT as c_int);
         out.push(ffi::glx::DONT_CARE as c_int);
 
@@ -489,11 +492,41 @@ unsafe fn choose_fbconfig(glx: &ffi::glx::Glx, extensions: &str, xlib: &ffi::Xli
         let mut num_configs = 1;
         let result = glx.ChooseFBConfig(display as *mut _, screen_id, descriptor.as_ptr(),
                                         &mut num_configs);
+        println!("Num configs found: {}", num_configs);
         if result.is_null() { return Err(()); }
         if num_configs == 0 { return Err(()); }
-        let val = *result;
+
+        let mut fb_config = None;
+
+        // TODO: Iterate over results (using num_configs) and check their visual info for 32-bit
+        // depth?
+        for i in 0..num_configs {
+            let test_config = unsafe {
+                result.offset(i as isize)
+            };
+            let visual_info: ffi::glx::types::XVisualInfo = unsafe {
+                let vi = glx.GetVisualFromFBConfig(display as *mut _, *test_config);
+                if vi.is_null() {
+                    return Err(());
+                }
+                let vi_copy = ptr::read(vi as *const _);
+                (xlib.XFree)(vi as *mut _);
+                vi_copy
+            };
+
+            if visual_info.depth == 32 {
+                fb_config = Some(*test_config);
+                break;
+            }
+        }
+
         (xlib.XFree)(result as *mut _);
-        val
+
+        if let Some(conf) = fb_config {
+            conf
+        } else {
+            return Err(());
+        }
     };
 
     let get_attrib = |attrib: c_int| -> i32 {
